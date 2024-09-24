@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdn.maptiler.com/maptiler-geocoding-control/v1.2.0/leaflet.umd.js"></script>
+    <link href="https://cdn.maptiler.com/maptiler-geocoding-control/v1.2.0/style.css" rel="stylesheet">
+
+    <style>
+        @font-face {
+            font-family: 'Agency FB';
+            src: local('Agency FB');
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Agency FB', Arial, sans-serif; /* Use Agency FB */
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        .info {
+            padding: 6px 8px;
+            font: 14px/16px 'Agency FB', Arial, Helvetica, sans-serif; /* Update to Agency FB */
+            background: rgba(255,255,255,0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+        }
+        .info h4 {
+            margin: 0 0 5px; color: #777;
+        }
+        .legend {
+            line-height: 18px; color: #555;
+        }
+        .legend i {
+            width: 18px; height: 18px;
+            float: left; margin-right: 8px; opacity: 0.7;
+        }
+        #updateWeightsBtn, #singleVariableMapBtn, .toggle-btn {
+            position: absolute;
+            padding: 10px 15px;
+            font-size: 16px;
+            color: white;
+            background-color: #0099ff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            font-family: 'Agency FB', Arial, sans-serif; /* Ensure buttons use Agency FB */
+        }
+        #updateWeightsBtn {
+            bottom: 10px;
+            left: 10px;
+        }
+        #singleVariableMapBtn {
+            bottom: 10px;
+            left: 150px;
+        }
+        #updateWeightsBtn:hover, #singleVariableMapBtn:hover {
+            background-color: #aa00b3;
+        }
+        .collapsible-container {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            width: 200px;
+            z-index: 1000;
+        }
+        .toggle-btn {
+            width: 100%;
+            background-color: #ff8c00;
+        }
+        .toggle-btn:hover {
+            background-color: #ffc400;
+        }
+        .ranked-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            border-radius: 5px;
+            z-index: 1000;
+        }
+        .ranked-list h4 {
+            margin: 0 0 10px;
+            font-size: 16px;
+            text-align: center;
+        }
+        .ranked-list div {
+            margin: 5px 0;
+        }
+        .gold {
+            color: gold;
+        }
+        .silver {
+            color: silver;
+        }
+        .bronze {
+            color: #cd7f32;
+        }
+    </style>
+
+    <title>The Texas Countywide Quality-of-Life Index</title>
+</head>
+<body>
+<div id="map"></div>
+<button id="updateWeightsBtn">Update Weights</button>
+<button id="singleVariableMapBtn">Single Variable Map</button>
+<div class="collapsible-container">
+    <button id="toggleRankedListBtn" class="toggle-btn">Ranked List</button>
+    <div id="rankedList" class="ranked-list" style="display: none;"></div>
+</div>
+
+<script type="text/javascript" src="TexasCountiesQoL_Fixed.js"></script>
+
+<script>
+    const key = 'XS6weqy2YCaXs8P5DmrE';
+    var map = L.map('map').setView([31.578, -99.317], 6);
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    L.control.maptilerGeocoding({apiKey: key, bbox: [-106.89, 25.56, -93.21, 36.67], country: "us"}).addTo(map);
+
+    let weights = new Array(8).fill(1);
+    let thresholds = [];
+    let geojson;
+
+    function getColor(Q) {
+        return Q > thresholds[5] ? '#1a9850' :
+               Q > thresholds[4] ? '#91cf60' :
+               Q > thresholds[3] ? '#d9ef8b' :
+               Q > thresholds[2] ? '#fee08b' :
+               Q > thresholds[1] ? '#fc8d59' :
+                                   '#d73027'; 
+    }
+
+    function calculateQualityOfLifeIndex(props) {
+        const totalWeight = weights.reduce((acc, weight) => acc + weight, 0);
+        return (props.HospitalsRanked * (weights[0] / totalWeight)) +
+               (props.CrimesRanked * (weights[1] / totalWeight)) +
+               (props.DeathsRanked * (weights[2] / totalWeight)) +
+               (props.SchoolDistrictsRanked * (weights[3] / totalWeight)) +
+               (props.MedianHouseholdIncomeRanked * (weights[4] / totalWeight)) +
+               (props.UnemployedRanked * (weights[5] / totalWeight)) +
+               (props.WeatherAndClimateRiskScoreRanked * (weights[6] / totalWeight)) +
+               (props.StateParksRanked * (weights[7] / totalWeight));
+    }
+
+    function calculateJenksBreaks(data, numClasses) {
+        let breaks = [];
+        data.sort((a, b) => a - b);
+        const step = Math.floor(data.length / numClasses);
+        for (let i = 0; i < numClasses; i++) {
+            breaks.push(data[i * step]);
+        }
+        breaks.push(data[data.length - 1]);
+        return breaks;
+    }
+
+    function style(feature) {
+        feature.properties.QoLIndexScore = calculateQualityOfLifeIndex(feature.properties);
+        return {
+            fillColor: getColor(feature.properties.QoLIndexScore),
+            weight: 2,
+            opacity: 1,
+            color: 'gray',
+            dashArray: '3',
+            fillOpacity: 0.7
+        };
+    }
+
+    function calculateAllQoLIndexScores() {
+        let scores = [];
+        geojson.eachLayer(function(layer) {
+            const score = calculateQualityOfLifeIndex(layer.feature.properties);
+            layer.feature.properties.QoLIndexScore = score;
+            scores.push(score);
+        });
+        thresholds = calculateJenksBreaks(scores, 6).map(threshold => Math.round(threshold * 10) / 10);
+    }
+
+    function updateMap() {
+        geojson.eachLayer(function(layer) {
+            layer.feature.properties.QoLIndexScore = calculateQualityOfLifeIndex(layer.feature.properties);
+            layer.setStyle(style(layer.feature));
+        });
+        calculateAllQoLIndexScores();
+        legend.update();
+        updateRankedList();
+    }
+
+    function updateRankedList() {
+        const scores = [];
+        geojson.eachLayer(function(layer) {
+            scores.push({
+                county: layer.feature.properties.County,
+                score: layer.feature.properties.QoLIndexScore
+            });
+        });
+
+        scores.sort((a, b) => b.score - a.score);
+        const rankedListDiv = document.getElementById('rankedList');
+        rankedListDiv.innerHTML = '<h4>County Rankings</h4>';
+        
+        scores.forEach((item, index) => {
+            const rankClass = index === 0 ? 'gold' : (index === 1 ? 'silver' : (index === 2 ? 'bronze' : ''));
+            rankedListDiv.innerHTML += `<div class="${rankClass}">#${index + 1}: ${item.county} - ${item.score.toFixed(1)}</div>`;
+            item.rank = index + 1;
+        });
+    }
+
+    function getWeights() {
+        const variables = [
+            "Hospitals",
+            "Crimes",
+            "Deaths",
+            "School Districts",
+            "Median Household Income",
+            "Unemployed",
+            "Weather and Climate Risk Score",
+            "State Parks"
+        ];
+
+        for (let i = 0; i < variables.length; i++) {
+            let weight;
+            do {
+                weight = prompt(`Enter your specified weight for ${variables[i]} (from 0 to 10):`);
+                if (weight === null) return; 
+                weight = parseFloat(weight);
+            } while (isNaN(weight) || weight < 0 || weight > 10);
+            
+            weights[i] = weight; 
+        }
+    }
+
+    function setSingleVariableWeights(selectedVariable) {
+        weights.fill(0);
+        switch (selectedVariable) {
+            case "Hospitals":
+                weights[0] = 1;
+                break;
+            case "Crimes":
+                weights[1] = 1;
+                break;
+            case "Deaths":
+                weights[2] = 1;
+                break;
+            case "School Districts":
+                weights[3] = 1;
+                break;
+            case "Median Household Income":
+                weights[4] = 1;
+                break;
+            case "Unemployed":
+                weights[5] = 1;
+                break;
+            case "Weather and Climate Risk Score":
+                weights[6] = 1;
+                break;
+            case "State Parks":
+                weights[7] = 1;
+                break;
+        }
+    }
+
+    document.getElementById('updateWeightsBtn').addEventListener('click', function() {
+        getWeights();
+        if (geojson) {
+            map.removeLayer(geojson);
+        }
+        geojson = L.geoJson(TexasCounties, {
+            style: style,
+            onEachFeature: onEachFeature
+        }).addTo(map);
+        calculateAllQoLIndexScores();
+        updateMap();
+    });
+
+    document.getElementById('singleVariableMapBtn').addEventListener('click', function() {
+        const selectedVariable = prompt("Enter a number to choose a variable:\n1. Hospitals\n2. Crimes\n3. Deaths\n4. School Districts\n5. Median Household Income\n6. Unemployed\n7. Weather and Climate Risk Score\n8. State Parks");
+        const variables = [
+            "Hospitals",
+            "Crimes",
+            "Deaths",
+            "School Districts",
+            "Median Household Income",
+            "Unemployed",
+            "Weather and Climate Risk Score",
+            "State Parks"
+        ];
+
+        const index = parseInt(selectedVariable) - 1;
+
+        if (index >= 0 && index < variables.length) {
+            setSingleVariableWeights(variables[index]);
+            if (geojson) {
+                map.removeLayer(geojson);
+            }
+            geojson = L.geoJson(TexasCounties, {
+                style: style,
+                onEachFeature: onEachFeature
+            }).addTo(map);
+            calculateAllQoLIndexScores();
+            updateMap();
+        } else {
+            alert("To select a variable, please choose a number between 1 and 8.");
+        }
+    });
+
+    document.getElementById('toggleRankedListBtn').addEventListener('click', function() {
+        const rankedListDiv = document.getElementById('rankedList');
+        rankedListDiv.style.display = rankedListDiv.style.display === 'none' ? 'block' : 'none';
+    });
+
+    function highlightFeature(e) {
+        var layer = e.target;
+        layer.setStyle({
+            weight: 5,
+            color: '#666',
+            dashArray: '',
+            fillOpacity: 0.7
+        });
+        info.update(layer.feature.properties);
+    }
+
+    function resetHighlight(e) {
+        geojson.resetStyle(e.target);
+        info.update();
+    }
+
+    function popupFeature(e) {
+        var layer = e.target;
+        const countyName = layer.feature.properties.County;
+        const rank = getCountyRank(countyName);
+        layer.bindPopup(`Rank: ${rank}`).openPopup();
+    }
+
+    function getCountyRank(countyName) {
+        const scores = [];
+        geojson.eachLayer(function(layer) {
+            scores.push({
+                county: layer.feature.properties.County,
+                score: layer.feature.properties.QoLIndexScore
+            });
+        });
+        scores.sort((a, b) => b.score - a.score);
+        const county = scores.find(item => item.county === countyName);
+        return county ? scores.indexOf(county) + 1 : null;
+    }
+
+    function onEachFeature(feature, layer) {
+        layer.on({
+            mouseover: highlightFeature,
+            mouseout: resetHighlight,
+            click: popupFeature
+        });
+    }
+
+    geojson = L.geoJson(TexasCounties, {
+        style: style,
+        onEachFeature: onEachFeature
+    }).addTo(map);
+
+    var info = L.control({position:'topleft'});
+    info.onAdd = function (map) {
+        this._div = L.DomUtil.create('div', 'info'); 
+        this.update();
+        return this._div;
+    };
+
+    info.update = function (props) {
+        this._div.innerHTML = '<h4>Variables and Quality-of-Life Index Score</h4>' +  (props ?
+            '<ins>' + props.County + " County" + '</ins><br />' +
+            "Population: " + props.Population + '<br />' + '<br />' +
+            '<i>' + "<span style='font-size: 14px;'>Quality-of-Life Index Score: </span>" + '<b>' + props.QoLIndexScore.toFixed(1) + '</b>' + '</i><br />' + '<br />' +
+            "Hospitals: " + props.Hospitals + '<br />' +
+            "Crimes: " + props.Crimes + '<br />' +
+            "Deaths: " + props.Deaths + '<br />' +
+            "School Districts: " + props.SchoolDistricts + '<br />' +
+            "Median Household Income: " + props.MedianHouseholdIncome + '<br />' +
+            "Unemployed: " + props.Unemployed + '<br />' +
+            "Weather and Climate Risk Score: " + props.WeatherAndClimateRiskScore.toFixed(1) + '<br />' +
+            "State Parks: " + props.StateParks + '<br />'
+            : 'Hover over any county in Texas.');
+    };
+
+    info.addTo(map);
+
+    var legend = L.control({position: 'bottomright'});
+
+    legend.onAdd = function (map) {
+        var div = L.DomUtil.create('div', 'info legend'),
+            labels = [];
+        div.innerHTML += '<h4>Quality-of-Life Index Score</h4>';
+        legend.update = function() {
+            div.innerHTML = '<h4>Quality-of-Life Index Score</h4>';
+            for (var i = 0; i < thresholds.length - 1; i++) {
+                div.innerHTML +=
+                    '<i style="background:' + getColor(thresholds[i] + 1) + '"></i> ' +
+                    thresholds[i].toFixed(1) + (thresholds[i + 1] ? '&ndash;' + thresholds[i + 1].toFixed(1) + '<br>' : '+');
+            }
+        };
+        legend.update();
+        return div;
+    };
+
+    legend.addTo(map);
+    calculateAllQoLIndexScores(); // Calculate scores for initial display
+    updateMap(); // Ensure the map is updated initially
+    updateRankedList();
+</script>
+</body>
+</html>
