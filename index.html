@@ -6,8 +6,19 @@
     <script src="https://cdn.maptiler.com/maptiler-geocoding-control/v1.2.0/leaflet.umd.js"></script>
     <link href="https://cdn.maptiler.com/maptiler-geocoding-control/v1.2.0/style.css" rel="stylesheet">
     <link rel="stylesheet" href="WebMapStyling.css">
-    
+
     <title>The Texas Countywide Quality-of-Life Index</title>
+    <style>
+        .tooltip {
+            position: absolute;
+            background-color: #333;
+            color: #fff;
+            padding: 5px;
+            border-radius: 4px;
+            display: none;
+            z-index: 1000;
+        }
+    </style>
 </head>
 <body>
 <div id="map"></div>
@@ -17,6 +28,8 @@
     <button id="toggleRankedListBtn" class="toggle-btn">County Ranked List</button>
     <div id="rankedList" class="ranked-list" style="display: none;"></div>
 </div>
+
+<div class="tooltip" id="tooltip"></div>
 
 <script type="text/javascript" src="TexasCountiesQoL_Fixed.js"></script>
 
@@ -78,7 +91,7 @@
             fillOpacity: 0.7
         };
     }
-
+ 
     function calculateAllQoLIndexScores() {
         let scores = [];
         geojson.eachLayer(function(layer) {
@@ -318,7 +331,46 @@
     calculateAllQoLIndexScores(); // Calculate scores for initial display
     updateMap(); // Ensure the map is updated initially
     updateRankedList();
-    
+
+// Tooltip functionality
+const tooltip = document.getElementById('tooltip');
+
+function showTooltip(event, message, position) {
+    tooltip.textContent = message;
+    tooltip.style.display = 'block';
+
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+
+    if (position === 'top-right') {
+        tooltip.style.left = event.pageX + 10 + 'px'; // Offset to the right
+        tooltip.style.top = event.pageY - tooltipHeight - 5 + 'px'; // Offset up
+    } else if (position === 'bottom-left') {
+        tooltip.style.left = event.pageX - tooltipWidth - 10 + 'px'; // Offset to the left
+        tooltip.style.top = event.pageY + 10 + 'px'; // Offset down
+    }
+}
+
+function hideTooltip() {
+    tooltip.style.display = 'none';
+}
+
+document.getElementById('updateWeightsBtn').addEventListener('mouseover', (event) => {
+    showTooltip(event, "Input a specified weight for each variable to regenerate the quality-of-life index score.", 'top-right');
+});
+
+document.getElementById('singleVariableMapBtn').addEventListener('mouseover', (event) => {
+    showTooltip(event, "Observe the quality-of-life based on a single, selected variable.", 'top-right');
+});
+
+document.getElementById('toggleRankedListBtn').addEventListener('mouseover', (event) => {
+    showTooltip(event, "Ranks each county in ascending order by its quality-of-life index score.", 'bottom-left');
+});
+
+document.querySelectorAll('button').forEach(button => {
+    button.addEventListener('mouseout', hideTooltip);
+});
+
 </script>
 </body>
 </html>
