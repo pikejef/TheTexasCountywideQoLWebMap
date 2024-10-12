@@ -53,7 +53,7 @@ body {
     font-family: 'Agency FB', Arial, sans-serif; /* Ensure buttons use Agency FB */
 }
 
-#singleVariableMapBtn, .toggle-btn {
+#singleVariableMapBtn {
     position: absolute;
     padding: 10px 15px;
     font-size: 16px;
@@ -94,8 +94,20 @@ body {
 }
 
 .toggle-btn {
+    position: absolute;
+    right: 280px;
+    top: -45px;
     width: 100%;
+    padding: 10px 15px;
+    font-size: 16px;
+    color: white;
     background-color: #ff8c00;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    font-family: 'Agency FB', Arial, sans-serif; /* Ensure buttons use Agency FB */
 }
 
 .toggle-btn:hover {
